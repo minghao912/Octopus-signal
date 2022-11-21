@@ -29,6 +29,7 @@ func send(w http.ResponseWriter, req *http.Request) {
 	conn, err := upgrader.Upgrade(w, req, nil)
 	if err != nil {
 		log.Println(err)
+		fmt.Fprintf(w, "ERROR: Could not upgrade to web socket\n"+err.Error())
 		return
 	}
 
@@ -96,9 +97,9 @@ func receive(w http.ResponseWriter, req *http.Request) {
 
 		// If client code is not in dict (invalid), send rejection
 		if !ok {
-			log.Printf("Advisory: Invalid code sent")
+			log.Println("Advisory: Invalid code sent")
 
-			err = conn.WriteMessage(websocket.TextMessage, []byte("Error: The requested code is invalid"))
+			err = conn.WriteMessage(websocket.TextMessage, []byte("ERROR: The requested code is invalid"))
 			if err != nil {
 				log.Println(err)
 				break
@@ -116,10 +117,52 @@ func receive(w http.ResponseWriter, req *http.Request) {
 }
 
 func remove(w http.ResponseWriter, req *http.Request) {
+	// Upgrade http request to web socket
+	conn, err := upgrader.Upgrade(w, req, nil)
+	if err != nil {
+		log.Println(err)
+		return
+	}
 
+	defer conn.Close()
+
+	for {
+		// Read the client's code
+		_, clientCode, err := conn.ReadMessage()
+		if err != nil {
+			log.Println(err)
+			break
+		}
+
+		log.Printf("Received new delete request with sender ID %s\n", string(clientCode))
+
+		// Try seeing if client code is in dict
+		_, ok := ids[string(clientCode)]
+
+		// If invalid code send response
+		if !ok {
+			log.Println("Advisory: Invalid code sent")
+
+			err = conn.WriteMessage(websocket.TextMessage, []byte("ERROR: The requested code is invalid"))
+			if err != nil {
+				log.Println(err)
+				break
+			}
+		} else { // Otherwise delete map entry
+			delete(ids, string(clientCode))
+
+			err = conn.WriteMessage(websocket.TextMessage, []byte("Success: Deleted "+string(clientCode)))
+			if err != nil {
+				log.Println(err)
+				break
+			}
+		}
+	}
 }
 
 func main() {
+	log.Println("Server started")
+
 	//Handlers for API routes
 	http.HandleFunc("/h", h)
 	http.HandleFunc("/send", send)
@@ -132,5 +175,6 @@ func main() {
 		httpPort = "8080"
 	}
 
+	log.Println("Server listening on port " + httpPort)
 	http.ListenAndServe(":"+httpPort, nil)
 }
