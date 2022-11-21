@@ -2,6 +2,8 @@ FROM golang
 
 WORKDIR /server
 
+ENV HTTP_PORT 8088
+
 # Copy go files
 COPY go.mod ./
 COPY go.sum ./
@@ -12,5 +14,5 @@ RUN go mod download
 
 # Build and start
 RUN go build -o /server-build
-EXPOSE 8080
+EXPOSE 8088
 CMD ["/server-build"]
