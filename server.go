@@ -66,6 +66,8 @@ func send(w http.ResponseWriter, req *http.Request) {
 			log.Println(err)
 			break
 		}
+
+		log.Printf("Sent new code %s to id %s\n", id, string(senderID))
 	}
 }
 
@@ -87,17 +89,23 @@ func receive(w http.ResponseWriter, req *http.Request) {
 			break
 		}
 
+		log.Printf("Received new receive request with sender ID %s\n", string(clientCode))
+
 		// Try seeing if client code is in dict
 		senderID, ok := ids[string(clientCode)]
 
 		// If client code is not in dict (invalid), send rejection
 		if !ok {
+			log.Printf("Advisory: Invalid code sent")
+
 			err = conn.WriteMessage(websocket.TextMessage, []byte("Error: The requested code is invalid"))
 			if err != nil {
 				log.Println(err)
 				break
 			}
 		} else { // Else, send back the sender's ID
+			log.Printf("Corresponding sender ID found: %s", senderID)
+
 			err = conn.WriteMessage(websocket.TextMessage, []byte(senderID))
 			if err != nil {
 				log.Println(err)
@@ -107,11 +115,16 @@ func receive(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
+func remove(w http.ResponseWriter, req *http.Request) {
+
+}
+
 func main() {
 	//Handlers for API routes
 	http.HandleFunc("/h", h)
 	http.HandleFunc("/send", send)
 	http.HandleFunc("/receive", receive)
+	http.HandleFunc("/remove", remove)
 
 	// Server config
 	httpPort := os.Getenv("HTTP_PORT")
