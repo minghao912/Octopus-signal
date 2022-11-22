@@ -26,6 +26,7 @@ var ids = make(map[string]string)
 
 func send(w http.ResponseWriter, req *http.Request) {
 	// Upgrade http request to web socket
+	upgrader.CheckOrigin = func(req *http.Request) bool { return true }	// Allow all origins
 	conn, err := upgrader.Upgrade(w, req, nil)
 	if err != nil {
 		log.Println(err)
@@ -74,6 +75,7 @@ func send(w http.ResponseWriter, req *http.Request) {
 
 func receive(w http.ResponseWriter, req *http.Request) {
 	// Upgrade http request to web socket
+	upgrader.CheckOrigin = func(req *http.Request) bool { return true } // Allow all origins
 	conn, err := upgrader.Upgrade(w, req, nil)
 	if err != nil {
 		log.Println(err)
@@ -118,6 +120,7 @@ func receive(w http.ResponseWriter, req *http.Request) {
 
 func remove(w http.ResponseWriter, req *http.Request) {
 	// Upgrade http request to web socket
+	upgrader.CheckOrigin = func(req *http.Request) bool { return true } // Allow all origins
 	conn, err := upgrader.Upgrade(w, req, nil)
 	if err != nil {
 		log.Println(err)
