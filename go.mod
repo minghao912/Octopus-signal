@@ -1,4 +1,4 @@
-module github.com/minghao912/Octopus-signal
+module github.com/minghao912/octopus-signal
 
 go 1.17
 
