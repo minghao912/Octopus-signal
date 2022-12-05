@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -21,12 +22,21 @@ func h(w http.ResponseWriter, req *http.Request) {
 	fmt.Fprintf(w, "hello\n")
 }
 
-// Global dict of codes and IDs
-var ids = make(map[string]string)
+// Map each code to a "channel"
+// Contains sender's websocket connection, recipient's websocket connection
+// as well as sender's signalling data and recipient's signalling data
+type channel struct {
+	senderWSConn        *websocket.Conn
+	recipientWSConn     *websocket.Conn
+	senderSignalData    []string
+	recipientSignalData []string
+}
+
+var ids = make(map[string]channel)
 
 func send(w http.ResponseWriter, req *http.Request) {
 	// Upgrade http request to web socket
-	upgrader.CheckOrigin = func(req *http.Request) bool { return true }	// Allow all origins
+	upgrader.CheckOrigin = func(req *http.Request) bool { return true } // Allow all origins
 	conn, err := upgrader.Upgrade(w, req, nil)
 	if err != nil {
 		log.Println(err)
@@ -34,42 +44,80 @@ func send(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	defer conn.Close()
-
 	for {
 		// Read the client's message (sender ID)
-		_, senderID, err := conn.ReadMessage()
+		_, incomingMessage, err := conn.ReadMessage()
 		if err != nil {
 			log.Println(err)
 			break
 		}
 
-		log.Printf("Received new send request with sender ID %s\n", string(senderID))
+		// If it's a new request generate IDs etc.
+		if strings.HasPrefix(string(incomingMessage), "INIT") {
+			log.Printf("Received new send request")
 
-		// Generate random number 0 - 999999
-		s := rand.NewSource(time.Now().UnixNano())
+			// Generate random number 0 - 999999
+			s := rand.NewSource(time.Now().UnixNano())
 
-		num := rand.New(s).Intn(999999)
-		id := fmt.Sprintf("%06d", num)
-		for _, exist := ids[id]; exist; _, exist = ids[id] { // Keep generating new id until it is unique
-			num = rand.New(s).Intn(999999)
-			id = fmt.Sprintf("%06d", num)
-			log.Println("here")
+			num := rand.New(s).Intn(999999)
+			id := fmt.Sprintf("%06d", num)
+			for _, exist := ids[id]; exist; _, exist = ids[id] { // Keep generating new id until it is unique
+				num = rand.New(s).Intn(999999)
+				id = fmt.Sprintf("%06d", num)
+				log.Println("here")
+			}
+
+			log.Printf("Generated new code %s\n", id)
+
+			// Send back the generated code
+			err = conn.WriteMessage(websocket.TextMessage, []byte(id))
+			if err != nil {
+				log.Println(err)
+				break
+			}
+
+			log.Printf("Sent new code %s\n", id)
+
+			// Add connection to channel data
+			entry, _ := ids[id]
+			entry.senderWSConn = conn
+			ids[id] = entry
+
+			continue
 		}
 
-		log.Printf("Generated new code %s\n", id)
+		// Otherwise, message contains signalling data, so add to dict
+		incomingMessageParts := strings.Split(string(incomingMessage), ": ")
+		incomingCode := incomingMessageParts[0]
+		incomingSignalData := incomingMessageParts[1]
 
-		// Store sender ID in map along with generated code
-		ids[id] = string(senderID)
+		log.Printf("[%s]: SEND: Received request: %s\n", incomingCode, incomingSignalData)
 
-		// Send back the generated codes
-		err = conn.WriteMessage(websocket.TextMessage, []byte(id))
-		if err != nil {
-			log.Println(err)
-			break
+		// If client code is not in dict (invalid), send rejection
+		if entry, ok := ids[incomingCode]; !ok {
+			log.Printf("Advisory: Invalid code %s sent\n", incomingCode)
+
+			err = conn.WriteMessage(websocket.TextMessage, []byte("ERROR: The requested code is invalid"))
+			if err != nil {
+				log.Println(err)
+				break
+			}
+
+			continue
+		} else {
+			// Store sender data in map along with generated code
+			entry.senderSignalData = append(entry.senderSignalData, string(incomingSignalData))
+
+			ids[incomingCode] = entry
+
+			err = conn.WriteMessage(websocket.TextMessage, []byte("OK"))
+			if err != nil {
+				log.Println(err)
+				break
+			}
+
+			log.Printf("[%s]: SEND: Added data to map", incomingCode)
 		}
-
-		log.Printf("Sent new code %s to id %s\n", id, string(senderID))
 	}
 }
 
@@ -82,20 +130,23 @@ func receive(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	defer conn.Close()
-
 	for {
 		// Read the client's code
-		_, clientCode, err := conn.ReadMessage()
+		_, incomingMessage, err := conn.ReadMessage()
 		if err != nil {
 			log.Println(err)
 			break
 		}
 
-		log.Printf("Received new receive request with sender ID %s\n", string(clientCode))
+		log.Printf("Received new receive request\n")
+
+		// Split incoming data
+		incomingMessageParts := strings.Split(string(incomingMessage), ": ")
+		incomingCode := incomingMessageParts[0]
+		incomingSignalData := incomingMessageParts[1]
 
 		// Try seeing if client code is in dict
-		senderID, ok := ids[string(clientCode)]
+		_, ok := ids[incomingCode]
 
 		// If client code is not in dict (invalid), send rejection
 		if !ok {
@@ -106,14 +157,34 @@ func receive(w http.ResponseWriter, req *http.Request) {
 				log.Println(err)
 				break
 			}
-		} else { // Else, send back the sender's ID
-			log.Printf("Corresponding sender ID found: %s", senderID)
 
-			err = conn.WriteMessage(websocket.TextMessage, []byte(senderID))
-			if err != nil {
-				log.Println(err)
-				break
-			}
+			continue
+		}
+
+		// If the "signal data" is the string INIT, this is the first message;
+		// send back the sender's signal data
+		if strings.HasPrefix(incomingSignalData, "INIT") {
+			log.Printf("[%s]: RECEIVE: INIT request detected", incomingCode)
+
+			channel, _ := ids[incomingCode]
+
+			conn.WriteMessage(websocket.TextMessage, []byte(strings.Join(channel.senderSignalData, "\n")))
+
+			continue
+		} else {
+			// Add to dict
+			entry, _ := ids[incomingCode]
+			entry.recipientWSConn = conn
+			entry.recipientSignalData = append(entry.recipientSignalData, incomingSignalData)
+
+			ids[incomingCode] = entry
+
+			conn.WriteMessage(websocket.TextMessage, []byte("OK"))
+
+			// Notify sender of recipient's signal data
+			entry.senderWSConn.WriteMessage(websocket.TextMessage, []byte(strings.Join(entry.recipientSignalData, "\n")))
+
+			log.Printf("[%s]: RECEIVE: Added data to map", incomingCode)
 		}
 	}
 }
@@ -151,7 +222,17 @@ func remove(w http.ResponseWriter, req *http.Request) {
 				log.Println(err)
 				break
 			}
-		} else { // Otherwise delete map entry
+		} else {
+			// Close previous connections
+			channel, _ := ids[string(clientCode)]
+			if channel.senderWSConn != nil {
+				channel.senderWSConn.Close()
+			}
+			if channel.recipientWSConn != nil {
+				channel.recipientWSConn.Close()
+			}
+
+			// Delete map entry
 			delete(ids, string(clientCode))
 
 			err = conn.WriteMessage(websocket.TextMessage, []byte("Success: Deleted "+string(clientCode)))
@@ -159,6 +240,8 @@ func remove(w http.ResponseWriter, req *http.Request) {
 				log.Println(err)
 				break
 			}
+
+			log.Printf("[%s]: REMOVE: Success closing sockets and deleting map", string(clientCode))
 		}
 	}
 }
