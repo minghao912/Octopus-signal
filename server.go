@@ -87,7 +87,7 @@ func send(w http.ResponseWriter, req *http.Request) {
 		}
 
 		// Otherwise, message contains signalling data, so add to dict
-		incomingMessageParts := strings.Split(string(incomingMessage), ": ")
+		incomingMessageParts := strings.SplitN(string(incomingMessage), ": ", 2)
 		incomingCode := incomingMessageParts[0]
 		incomingSignalData := incomingMessageParts[1]
 
@@ -141,7 +141,7 @@ func receive(w http.ResponseWriter, req *http.Request) {
 		log.Printf("Received new receive request\n")
 
 		// Split incoming data
-		incomingMessageParts := strings.Split(string(incomingMessage), ": ")
+		incomingMessageParts := strings.SplitN(string(incomingMessage), ": ", 2)
 		incomingCode := incomingMessageParts[0]
 		incomingSignalData := incomingMessageParts[1]
 
@@ -168,7 +168,10 @@ func receive(w http.ResponseWriter, req *http.Request) {
 
 			channel, _ := ids[incomingCode]
 
-			conn.WriteMessage(websocket.TextMessage, []byte(strings.Join(channel.senderSignalData, "\n")))
+			for _, e := range channel.senderSignalData {
+				log.Printf("[%s]: RECEIVE: Sending back signal data -- %s", incomingCode, e)
+				conn.WriteMessage(websocket.TextMessage, []byte(e))
+			}
 
 			continue
 		} else {
@@ -182,7 +185,7 @@ func receive(w http.ResponseWriter, req *http.Request) {
 			conn.WriteMessage(websocket.TextMessage, []byte("OK"))
 
 			// Notify sender of recipient's signal data
-			entry.senderWSConn.WriteMessage(websocket.TextMessage, []byte(strings.Join(entry.recipientSignalData, "\n")))
+			entry.senderWSConn.WriteMessage(websocket.TextMessage, []byte(incomingSignalData))
 
 			log.Printf("[%s]: RECEIVE: Added data to map", incomingCode)
 		}
