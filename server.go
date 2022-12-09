@@ -169,7 +169,7 @@ func receive(w http.ResponseWriter, req *http.Request) {
 			channel, _ := ids[incomingCode]
 
 			for _, e := range channel.senderSignalData {
-				log.Printf("[%s]: RECEIVE: Sending back signal data -- %s", incomingCode, e)
+				log.Printf("[%s]: RECEIVE: Sending sender's signal data to receiver -- %s", incomingCode, e)
 				conn.WriteMessage(websocket.TextMessage, []byte(e))
 			}
 
@@ -187,7 +187,7 @@ func receive(w http.ResponseWriter, req *http.Request) {
 			// Notify sender of recipient's signal data
 			entry.senderWSConn.WriteMessage(websocket.TextMessage, []byte(incomingSignalData))
 
-			log.Printf("[%s]: RECEIVE: Added data to map", incomingCode)
+			log.Printf("[%s]: RECEIVE: Added data to map and sent to sender", incomingCode)
 		}
 	}
 }
