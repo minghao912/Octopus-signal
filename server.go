@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,10 +27,15 @@ func h(w http.ResponseWriter, req *http.Request) {
 // Contains sender's websocket connection, recipient's websocket connection
 // as well as sender's signalling data and recipient's signalling data
 type channel struct {
-	senderWSConn        *websocket.Conn
-	recipientWSConn     *websocket.Conn
-	senderSignalData    []string
-	recipientSignalData []string
+	senderWSConn    *websocket.Conn
+	recipientWSConn *websocket.Conn
+	fileData        fileData
+	chunksReceived  uint32
+}
+
+type fileData struct {
+	filename string
+	fileSize uint32
 }
 
 var ids = make(map[string]channel)
@@ -81,17 +87,19 @@ func send(w http.ResponseWriter, req *http.Request) {
 			// Add connection to channel data
 			entry, _ := ids[id]
 			entry.senderWSConn = conn
+			entry.fileData = fileData{}
+			entry.chunksReceived = 0
 			ids[id] = entry
 
 			continue
 		}
 
-		// Otherwise, message contains signalling data, so add to dict
+		// Otherwise, message contains data, so pass to receiver
 		incomingMessageParts := strings.SplitN(string(incomingMessage), ": ", 2)
 		incomingCode := incomingMessageParts[0]
-		incomingSignalData := incomingMessageParts[1]
+		incomingData := incomingMessageParts[1]
 
-		log.Printf("[%s]: SEND: Received request: %s\n", incomingCode, incomingSignalData)
+		log.Printf("[%s]: SEND: Received request: %s\n", incomingCode, incomingData)
 
 		// If client code is not in dict (invalid), send rejection
 		if entry, ok := ids[incomingCode]; !ok {
@@ -105,10 +113,34 @@ func send(w http.ResponseWriter, req *http.Request) {
 
 			continue
 		} else {
-			// Store sender data in map along with generated code
-			entry.senderSignalData = append(entry.senderSignalData, string(incomingSignalData))
+			// If "incomingData" section is "FILE", then this message contains file data
+			// in format [CODE]: FILE,filename,fileSizeBytes
+			if strings.HasPrefix(incomingData, "FILE") {
+				dat := strings.Split(incomingData, ",")
 
-			ids[incomingCode] = entry
+				size, err := strconv.Atoi(dat[2])
+				if err != nil {
+					log.Printf("[%s]: Error: Could not convert file size to int\n", incomingCode)
+					conn.WriteMessage(websocket.TextMessage, []byte("ERROR: Could not convert file size to int"))
+				}
+
+				fd := entry.fileData
+				fd.filename = dat[1]
+				fd.fileSize = uint32(size)
+
+				entry.fileData = fd
+				ids[incomingCode] = entry
+			}
+
+			// Check if there is a recipient associated with the code
+			if entry.recipientWSConn == nil {
+				log.Printf("[%s]: Error: No recipient associated with code %s\n", incomingCode, incomingCode)
+				conn.WriteMessage(websocket.TextMessage, []byte("ERROR: No recipient associated with this code"))
+
+				continue
+			}
+
+			entry.recipientWSConn.WriteMessage(websocket.TextMessage, []byte(incomingData))
 
 			err = conn.WriteMessage(websocket.TextMessage, []byte("OK"))
 			if err != nil {
@@ -116,7 +148,7 @@ func send(w http.ResponseWriter, req *http.Request) {
 				break
 			}
 
-			log.Printf("[%s]: SEND: Added data to map", incomingCode)
+			log.Printf("[%s]: SEND: Sent to recipient", incomingCode)
 		}
 	}
 }
@@ -168,26 +200,19 @@ func receive(w http.ResponseWriter, req *http.Request) {
 
 			channel, _ := ids[incomingCode]
 
-			for _, e := range channel.senderSignalData {
-				log.Printf("[%s]: RECEIVE: Sending sender's signal data to receiver -- %s", incomingCode, e)
-				conn.WriteMessage(websocket.TextMessage, []byte(e))
+			if channel.senderWSConn == nil {
+				log.Printf("[%s]: Error: No sender associated with code %s\n", incomingCode, incomingCode)
+				conn.WriteMessage(websocket.TextMessage, []byte("ERROR: No sender associated with this code"))
+
+				continue
 			}
 
-			continue
-		} else {
-			// Add to dict
-			entry, _ := ids[incomingCode]
-			entry.recipientWSConn = conn
-			entry.recipientSignalData = append(entry.recipientSignalData, incomingSignalData)
-
-			ids[incomingCode] = entry
+			channel.recipientWSConn = conn
+			ids[incomingCode] = channel
 
 			conn.WriteMessage(websocket.TextMessage, []byte("OK"))
-
-			// Notify sender of recipient's signal data
-			entry.senderWSConn.WriteMessage(websocket.TextMessage, []byte(incomingSignalData))
-
-			log.Printf("[%s]: RECEIVE: Added data to map and sent to sender", incomingCode)
+			channel.senderWSConn.WriteMessage(websocket.TextMessage, []byte("Connection received"))
+			log.Printf("[%s]: RECEIVE: Recipient activated", incomingCode)
 		}
 	}
 }
