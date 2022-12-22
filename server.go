@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"math/rand"
@@ -27,15 +28,15 @@ func h(w http.ResponseWriter, req *http.Request) {
 // Contains sender's websocket connection, recipient's websocket connection
 // as well as sender's signalling data and recipient's signalling data
 type channel struct {
-	senderWSConn    *websocket.Conn
-	recipientWSConn *websocket.Conn
-	fileData        fileData
-	chunksReceived  uint32
+	SenderWSConn    *websocket.Conn `json:"senderWSConn"`
+	RecipientWSConn *websocket.Conn `json:"recipientWSConn"`
+	FileData        fileData        `json:"fileData"`
+	ChunksReceived  uint32          `json:"chunksReceived"`
 }
 
 type fileData struct {
-	filename string
-	fileSize uint32
+	FileName string `json:fileName`
+	FileSize uint32 `json:fileSize`
 }
 
 var ids = make(map[string]channel)
@@ -86,9 +87,9 @@ func send(w http.ResponseWriter, req *http.Request) {
 
 			// Add connection to channel data
 			entry, _ := ids[id]
-			entry.senderWSConn = conn
-			entry.fileData = fileData{}
-			entry.chunksReceived = 0
+			entry.SenderWSConn = conn
+			entry.FileData = fileData{}
+			entry.ChunksReceived = 0
 			ids[id] = entry
 
 			continue
@@ -124,23 +125,23 @@ func send(w http.ResponseWriter, req *http.Request) {
 					conn.WriteMessage(websocket.TextMessage, []byte("ERROR: Could not convert file size to int"))
 				}
 
-				fd := entry.fileData
-				fd.filename = dat[1]
-				fd.fileSize = uint32(size)
+				fd := entry.FileData
+				fd.FileName = dat[1]
+				fd.FileSize = uint32(size)
 
-				entry.fileData = fd
+				entry.FileData = fd
 				ids[incomingCode] = entry
 			}
 
 			// Check if there is a recipient associated with the code
-			if entry.recipientWSConn == nil {
+			if entry.RecipientWSConn == nil {
 				log.Printf("[%s]: Error: No recipient associated with code %s\n", incomingCode, incomingCode)
 				conn.WriteMessage(websocket.TextMessage, []byte("ERROR: No recipient associated with this code"))
 
 				continue
 			}
 
-			entry.recipientWSConn.WriteMessage(websocket.TextMessage, []byte(incomingData))
+			entry.RecipientWSConn.WriteMessage(websocket.TextMessage, []byte(incomingData))
 
 			err = conn.WriteMessage(websocket.TextMessage, []byte("OK"))
 			if err != nil {
@@ -200,18 +201,18 @@ func receive(w http.ResponseWriter, req *http.Request) {
 
 			channel, _ := ids[incomingCode]
 
-			if channel.senderWSConn == nil {
+			if channel.SenderWSConn == nil {
 				log.Printf("[%s]: Error: No sender associated with code %s\n", incomingCode, incomingCode)
 				conn.WriteMessage(websocket.TextMessage, []byte("ERROR: No sender associated with this code"))
 
 				continue
 			}
 
-			channel.recipientWSConn = conn
+			channel.RecipientWSConn = conn
 			ids[incomingCode] = channel
 
 			conn.WriteMessage(websocket.TextMessage, []byte("OK"))
-			channel.senderWSConn.WriteMessage(websocket.TextMessage, []byte("Connection received"))
+			channel.SenderWSConn.WriteMessage(websocket.TextMessage, []byte("Connection received"))
 			log.Printf("[%s]: RECEIVE: Recipient activated", incomingCode)
 		}
 	}
@@ -253,11 +254,11 @@ func remove(w http.ResponseWriter, req *http.Request) {
 		} else {
 			// Close previous connections
 			channel, _ := ids[string(clientCode)]
-			if channel.senderWSConn != nil {
-				channel.senderWSConn.Close()
+			if channel.SenderWSConn != nil {
+				channel.SenderWSConn.Close()
 			}
-			if channel.recipientWSConn != nil {
-				channel.recipientWSConn.Close()
+			if channel.RecipientWSConn != nil {
+				channel.RecipientWSConn.Close()
 			}
 
 			// Delete map entry
@@ -274,11 +275,44 @@ func remove(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
+func diagnostic(w http.ResponseWriter, req *http.Request) {
+	/*// Create JSON object
+	type channelMap struct {
+		key   string
+		value channel
+	}
+
+	arr := []channelMap{}
+
+	for k, v := range ids {
+		newChannel := channelMap{
+			key:   k,
+			value: v,
+		}
+
+		arr = append(arr, newChannel)
+		fmt.Printf(newChannel.key + "\n")
+	}*/
+
+	d, err := json.Marshal(&ids)
+	if err != nil {
+		fmt.Printf("Oh no!\n")
+	}
+
+	fmt.Printf(string(d) + "\n")
+
+	// Send data
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(d)
+}
+
 func main() {
 	log.Println("Server started")
 
 	//Handlers for API routes
 	http.HandleFunc("/h", h)
+	http.HandleFunc("/diagnostic", diagnostic)
 	http.HandleFunc("/send", send)
 	http.HandleFunc("/receive", receive)
 	http.HandleFunc("/remove", remove)
