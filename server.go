@@ -143,6 +143,10 @@ func send(w http.ResponseWriter, req *http.Request) {
 
 			entry.RecipientWSConn.WriteMessage(websocket.TextMessage, []byte(incomingData))
 
+			// Increase chunk count
+			entry.ChunksReceived = entry.ChunksReceived + 1
+			ids[incomingCode] = entry
+
 			err = conn.WriteMessage(websocket.TextMessage, []byte("OK"))
 			if err != nil {
 				log.Println(err)
