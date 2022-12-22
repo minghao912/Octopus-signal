@@ -35,8 +35,8 @@ type channel struct {
 }
 
 type fileData struct {
-	FileName string `json:fileName`
-	FileSize uint32 `json:fileSize`
+	FileName string `json:"fileName"`
+	FileSize uint32 `json:"fileSize"`
 }
 
 var ids = make(map[string]channel)
