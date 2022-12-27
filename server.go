@@ -237,6 +237,12 @@ func remove(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	if req.Method == "OPTIONS" {
+		w.WriteHeader((http.StatusAccepted))
+		w.Write([]byte("Preflight OK"))
+		return
+	}
+
 	clientCode := req.URL.Query().Get("code")
 	if clientCode == "" {
 		log.Println("Remove did not receive a code parameter")
