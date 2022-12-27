@@ -227,13 +227,13 @@ func remove(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
-	w.Header().Set("Access-Control-Allow-Methods", "DELETE")
+	w.Header().Set("Access-Control-Allow-Methods", "DELETE, OPTIONS")
 
-	if req.Method != "DELETE" {
-		log.Println("Remove received " + req.Method + " request, but only DELETE requests allowed")
+	if req.Method != "DELETE" && req.Method != "OPTIONS" {
+		log.Println("Remove received " + req.Method + " request, but only DELETE and OPTIONS requests allowed")
 
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		w.Write([]byte("Only DELETE requests allowed"))
+		w.Write([]byte("Only DELETE and OPTIONS requests allowed"))
 		return
 	}
 
