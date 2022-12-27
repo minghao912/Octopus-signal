@@ -272,30 +272,10 @@ func remove(w http.ResponseWriter, req *http.Request) {
 }
 
 func diagnostic(w http.ResponseWriter, req *http.Request) {
-	/*// Create JSON object
-	type channelMap struct {
-		key   string
-		value channel
-	}
-
-	arr := []channelMap{}
-
-	for k, v := range ids {
-		newChannel := channelMap{
-			key:   k,
-			value: v,
-		}
-
-		arr = append(arr, newChannel)
-		fmt.Printf(newChannel.key + "\n")
-	}*/
-
 	d, err := json.Marshal(&ids)
 	if err != nil {
 		fmt.Printf("Oh no!\n")
 	}
-
-	fmt.Printf(string(d) + "\n")
 
 	// Send data
 	w.Header().Set("Content-Type", "application/json")
