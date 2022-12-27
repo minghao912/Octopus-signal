@@ -231,6 +231,9 @@ func remove(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// For CORS
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
 	clientCode := req.URL.Query().Get("code")
 	if clientCode == "" {
 		log.Println("Remove did not receive a code parameter")
