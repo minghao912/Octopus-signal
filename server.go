@@ -223,59 +223,51 @@ func receive(w http.ResponseWriter, req *http.Request) {
 }
 
 func remove(w http.ResponseWriter, req *http.Request) {
-	// Upgrade http request to web socket
-	upgrader.CheckOrigin = func(req *http.Request) bool { return true } // Allow all origins
-	conn, err := upgrader.Upgrade(w, req, nil)
-	if err != nil {
-		log.Println(err)
+	if req.Method != "DELETE" {
+		log.Println("Remove received " + req.Method + " request, but only DELETE requests allowed")
+
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		w.Write([]byte("Only DELETE requests allowed"))
 		return
 	}
 
-	defer conn.Close()
+	clientCode := req.URL.Query().Get("code")
+	if clientCode == "" {
+		log.Println("Remove did not receive a code parameter")
 
-	for {
-		// Read the client's code
-		_, clientCode, err := conn.ReadMessage()
-		if err != nil {
-			log.Println(err)
-			break
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("Request is missing the code parameter"))
+		return
+	}
+
+	log.Printf("Received new delete request with sender ID %s\n", string(clientCode))
+
+	// Try seeing if client code is in dict
+	_, ok := ids[string(clientCode)]
+
+	// If invalid code send response
+	if !ok {
+		log.Println("Advisory: Invalid code sent")
+
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("Invalid code"))
+	} else {
+		// Close previous connections
+		channel, _ := ids[string(clientCode)]
+		if channel.SenderWSConn != nil {
+			channel.SenderWSConn.Close()
+		}
+		if channel.RecipientWSConn != nil {
+			channel.RecipientWSConn.Close()
 		}
 
-		log.Printf("Received new delete request with sender ID %s\n", string(clientCode))
+		// Delete map entry
+		delete(ids, string(clientCode))
 
-		// Try seeing if client code is in dict
-		_, ok := ids[string(clientCode)]
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("Successfully deleted code " + clientCode))
 
-		// If invalid code send response
-		if !ok {
-			log.Println("Advisory: Invalid code sent")
-
-			err = conn.WriteMessage(websocket.TextMessage, []byte("ERROR: The requested code is invalid"))
-			if err != nil {
-				log.Println(err)
-				break
-			}
-		} else {
-			// Close previous connections
-			channel, _ := ids[string(clientCode)]
-			if channel.SenderWSConn != nil {
-				channel.SenderWSConn.Close()
-			}
-			if channel.RecipientWSConn != nil {
-				channel.RecipientWSConn.Close()
-			}
-
-			// Delete map entry
-			delete(ids, string(clientCode))
-
-			err = conn.WriteMessage(websocket.TextMessage, []byte("Success: Deleted "+string(clientCode)))
-			if err != nil {
-				log.Println(err)
-				break
-			}
-
-			log.Printf("[%s]: REMOVE: Success closing sockets and deleting map", string(clientCode))
-		}
+		log.Printf("[%s]: REMOVE: Success closing sockets and deleting map", string(clientCode))
 	}
 }
 
