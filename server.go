@@ -223,6 +223,12 @@ func receive(w http.ResponseWriter, req *http.Request) {
 }
 
 func remove(w http.ResponseWriter, req *http.Request) {
+	// For CORS
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
+	w.Header().Set("Access-Control-Allow-Methods", "DELETE")
+
 	if req.Method != "DELETE" {
 		log.Println("Remove received " + req.Method + " request, but only DELETE requests allowed")
 
@@ -230,9 +236,6 @@ func remove(w http.ResponseWriter, req *http.Request) {
 		w.Write([]byte("Only DELETE requests allowed"))
 		return
 	}
-
-	// For CORS
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 
 	clientCode := req.URL.Query().Get("code")
 	if clientCode == "" {
