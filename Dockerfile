@@ -8,6 +8,7 @@ ENV HTTP_PORT 8088
 COPY go.mod ./
 COPY go.sum ./
 COPY *.go ./
+COPY internal/*.go ./internal/
 
 # Download dependencies
 RUN go mod download
